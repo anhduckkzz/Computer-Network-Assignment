@@ -13,7 +13,7 @@
 
 ---
 
-# Project: Tutor Support System at Ho Chi Minh City University of Technology – VNU-HCM
+# Project: DEVELOP A NETWORK APPLICATION - SIMPLE FILE SHARING APPLICATION
 
 ## Lecturer: Nguyễn Thành Nhân
 ## Team members
@@ -34,22 +34,17 @@
   <img src="https://cdn2.iconfinder.com/data/icons/designer-skills/128/code-programming-javascript-software-develop-command-language-256.png" width=35px/>
 
 - **Back-end**  
-  <img src="https://cdn.iconscout.com/icon/free/png-256/free-nodejs-2-226035.png" width=35px/>
+  <img src="https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/267_Python_logo-256.png" width=35px/>
+
+- **Database**  
+  <img src="https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/288_PgSQL_logo-256.png" width=35px/>
 
 - **Version Control**  
   <img src="https://cdn1.iconfinder.com/data/icons/logotypes/32/github-256.png" width=30px/>
-
-- **UX/UI**  
-  <img src="https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg" width=25px/>
 
 - **UML Diagram**  
   <img src="https://sm.pcmag.com/t/pcmag_au/review/s/smartdraw-/smartdraw-cloud_wrdt.3840.jpg" width=70px/>
 
 - **Report**  
   <img src="https://images.ctfassets.net/nrgyaltdicpt/6gsvc5Ogjmu04I4Miu0uGg/cb1d4391717d2ab8d5e42ede6fb0eef1/overleaf_wide_colour_light_bg.png" width=70px/>
-  
-- **Database**
-  HCMUT_DATACORE
 
-- **Authentication**
-  HCMUT_SSO
