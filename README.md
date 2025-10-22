@@ -23,7 +23,7 @@
 |  1  | Trần Anh Đức        | 2352271    | CC05  | duc.trananh0502@hcmut.edu.vn              |
 |  2  | Hồ Lâm Khánh Vy    | 2353353    | CC05  | vy.holamkhanh@hcmut.edu.vn            |
 |  3  | Trần Hoàng Khánh   | 2352533    | CC05  | khanh.tranhoang@hcmut.edu.vn            |
-|  4  | Huỳnh Quốc Đạt| 2352228 | CC05 |  |
+|  4  | Huỳnh Quốc Đạt| 2352228 | CC05 | dat.huynhcuc@hcmut.edu.vn |
 
 
 ## Languages & Tools
