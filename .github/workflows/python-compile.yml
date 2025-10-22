@@ -1,4 +1,4 @@
-name: Python compile check
+name: Syntax Error Check through all python file
 
 on:
   push:
