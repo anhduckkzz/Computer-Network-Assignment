@@ -37,7 +37,7 @@
   <img src="https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/267_Python_logo-256.png" width=35px/>
 
 - **Database**  
-  <img src="https://cdn4.iconfinder.com/data/icons/logos-and-brands/512/288_PgSQL_logo-256.png" width=35px/>
+  <img src="https://www.vhv.rs/dpng/d/542-5425575_postgres-logo-png-transparent-png.png" width=35px/>
 
 - **Version Control**  
   <img src="https://cdn1.iconfinder.com/data/icons/logotypes/32/github-256.png" width=30px/>
