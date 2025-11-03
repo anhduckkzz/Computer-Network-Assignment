@@ -460,49 +460,157 @@ class ClientUI:
             self.fetch_button.config(state=tk.NORMAL)
             return
 
-        chosen_peer = peer_list[0]
-        if len(peer_list) > 1:
-            peer_lines = [
-                f"{idx + 1}. {peer.get('hostname')} ({peer.get('ip')}:{peer.get('port')})"
-                for idx, peer in enumerate(peer_list)
-            ]
-            prompt = "Select a peer to download from:\n" + "\n".join(peer_lines)
-            choice = simpledialog.askinteger(
-                "Choose Peer",
-                prompt,
-                parent=self.root,
-                minvalue=1,
-                maxvalue=len(peer_list),
-            )
-            if choice is None:
-                logging.info("Fetch cancelled; no peer selected.")
-                self.fetch_button.config(state=tk.NORMAL)
-                return
-            chosen_peer = peer_list[choice - 1]
-
-        default_name = fname
-        save_path = filedialog.asksaveasfilename(
-            title="Save Downloaded File",
-            initialfile=default_name,
-            defaultextension=os.path.splitext(default_name)[1],
-        )
-        if not save_path:
-            logging.info("Fetch cancelled; no destination selected.")
+        selected_indices = self._show_peer_selection(fname, peer_list)
+        if selected_indices is None:
+            logging.info("Fetch cancelled; no peer selected.")
             self.fetch_button.config(state=tk.NORMAL)
             return
 
-        if os.path.exists(save_path):
-            overwrite = messagebox.askyesno("Overwrite?", f"File '{save_path}' exists. Overwrite?")
-            if not overwrite:
-                logging.info("Fetch cancelled; user chose not to overwrite %s.", save_path)
+        if len(selected_indices) == 1:
+            chosen_peer = peer_list[selected_indices[0]]
+            default_name = self._get_preferred_filename(chosen_peer, fname)
+            save_path = filedialog.asksaveasfilename(
+                title="Save Downloaded File",
+                initialfile=default_name,
+                defaultextension=os.path.splitext(default_name)[1],
+            )
+            if not save_path:
+                logging.info("Fetch cancelled; no destination selected.")
                 self.fetch_button.config(state=tk.NORMAL)
                 return
 
+            if os.path.exists(save_path):
+                overwrite = messagebox.askyesno("Overwrite?", f"File '{save_path}' exists. Overwrite?")
+                if not overwrite:
+                    logging.info("Fetch cancelled; user chose not to overwrite %s.", save_path)
+                    self.fetch_button.config(state=tk.NORMAL)
+                    return
+
+            threading.Thread(
+                target=self._download_task,
+                args=(chosen_peer, save_path),
+                daemon=True,
+            ).start()
+            return
+
+        target_directory = filedialog.askdirectory(
+            title="Select Destination Directory for Downloads",
+            mustexist=True,
+        )
+        if not target_directory:
+            logging.info("Fetch cancelled; no destination directory selected.")
+            self.fetch_button.config(state=tk.NORMAL)
+            return
+
+        download_tasks = []
+        for index in selected_indices:
+            peer = peer_list[index]
+            filename = self._get_preferred_filename(peer, fname)
+            destination = self._unique_destination_path(target_directory, filename)
+            download_tasks.append((peer, destination))
+
+        logging.info("Starting batch download for %d peer(s).", len(download_tasks))
         threading.Thread(
-            target=self._download_task,
-            args=(chosen_peer, save_path),
+            target=self._download_multiple_task,
+            args=(download_tasks,),
             daemon=True,
         ).start()
+
+    def _show_peer_selection(self, fname, peer_list):
+        if len(peer_list) == 1:
+            return [0]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Peer(s)")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        instruction = tk.Label(
+            dialog,
+            text="Choose peer(s) to download from.\n"
+            "Use Ctrl/Shift for multi-select or pick an option below.",
+            justify=tk.LEFT,
+        )
+        instruction.pack(padx=10, pady=(10, 5), anchor="w")
+
+        listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE, width=60, height=min(10, len(peer_list)))
+        listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+
+        for idx, peer in enumerate(peer_list, start=1):
+            hostname = peer.get("hostname") or "Unknown"
+            original_name = os.path.basename(peer.get("lname") or fname)
+            listbox.insert(
+                tk.END,
+                f"{idx}. {hostname} ({original_name})",
+            )
+
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(padx=10, pady=(5, 10), fill=tk.X)
+        button_frame.columnconfigure((0, 1, 2, 3), weight=1)
+
+        result = {"indices": None}
+
+        def on_select():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showinfo("Selection required", "Select at least one peer.", parent=dialog)
+                return
+            result["indices"] = list(selection)
+            dialog.destroy()
+
+        def on_select_all():
+            result["indices"] = list(range(len(peer_list)))
+            dialog.destroy()
+
+        def on_custom():
+            raw = simpledialog.askstring(
+                "Custom selection",
+                "Enter peer numbers separated by commas (e.g. 1,3,4):",
+                parent=dialog,
+            )
+            if raw is None:
+                return
+            try:
+                indices = []
+                for chunk in raw.replace(" ", "").split(","):
+                    if not chunk:
+                        continue
+                    value = int(chunk)
+                    if value < 1 or value > len(peer_list):
+                        raise ValueError(f"Peer number {value} is out of range.")
+                    zero_based = value - 1
+                    if zero_based not in indices:
+                        indices.append(zero_based)
+            except ValueError as exc:
+                messagebox.showerror("Invalid input", str(exc), parent=dialog)
+                return
+            if not indices:
+                messagebox.showinfo("Selection required", "Provide at least one valid peer number.", parent=dialog)
+                return
+            result["indices"] = indices
+            dialog.destroy()
+
+        def on_cancel():
+            result["indices"] = None
+            dialog.destroy()
+
+        select_button = tk.Button(button_frame, text="Download Selected", command=on_select, bg=PASTEL_BUTTON)
+        select_button.grid(row=0, column=0, padx=5, sticky="ew")
+
+        all_button = tk.Button(button_frame, text="Download All", command=on_select_all, bg=PASTEL_BUTTON)
+        all_button.grid(row=0, column=1, padx=5, sticky="ew")
+
+        custom_button = tk.Button(button_frame, text="Custom...", command=on_custom, bg=PASTEL_BUTTON)
+        custom_button.grid(row=0, column=2, padx=5, sticky="ew")
+
+        cancel_button = tk.Button(button_frame, text="Cancel", command=on_cancel, bg=PASTEL_BUTTON)
+        cancel_button.grid(row=0, column=3, padx=5, sticky="ew")
+
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+        dialog.resizable(False, False)
+        dialog.focus_set()
+        self.root.wait_window(dialog)
+        return result["indices"]
 
     def _download_task(self, peer_info, save_path):
         try:
@@ -528,6 +636,52 @@ class ClientUI:
         else:
             messagebox.showerror("Download error", error_message)
         self.fetch_button.config(state=tk.NORMAL)
+
+    def _download_multiple_task(self, download_tasks):
+        successes = []
+        failures = []
+        for peer_info, save_path in download_tasks:
+            try:
+                self.controller.download_from_peer(peer_info, save_path)
+            except Exception as exc:
+                logging.error("Download failed for %s: %s", save_path, exc)
+                failures.append((peer_info, save_path, str(exc)))
+            else:
+                successes.append((peer_info, save_path))
+        self.root.after(
+            0,
+            lambda: self._on_multi_download_finished(successes, failures),
+        )
+
+    def _on_multi_download_finished(self, successes, failures):
+        messages = []
+        if successes:
+            success_lines = "\n".join(f"- {path}" for _, path in successes)
+            messages.append(f"Downloaded {len(successes)} file(s):\n{success_lines}")
+        if failures:
+            failure_lines = "\n".join(
+                f"- {os.path.basename(path)} ({err})" for _, path, err in failures
+            )
+            messages.append(f"Failed downloads:\n{failure_lines}")
+
+        summary = "\n\n".join(messages) if messages else "No downloads were completed."
+        messagebox.showinfo("Fetch summary", summary)
+        self.fetch_button.config(state=tk.NORMAL)
+
+    def _get_preferred_filename(self, peer_info, fallback_name):
+        original = peer_info.get("lname")
+        if original:
+            return os.path.basename(original)
+        return os.path.basename(fallback_name)
+
+    def _unique_destination_path(self, directory, filename):
+        base, ext = os.path.splitext(filename)
+        candidate = os.path.join(directory, filename)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(directory, f"{base}_{counter}{ext}")
+            counter += 1
+        return candidate
 
     def clear_log(self):
         self.log_text.configure(state=tk.NORMAL)

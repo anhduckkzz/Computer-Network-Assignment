@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 import server
+from database import DEFAULT_DB_URL
 
 
 PASTEL_BG = "#ffe6f2"
@@ -39,11 +40,11 @@ class ServerController:
         self.listener_thread = None
         self.running = False
 
-    def start(self, ip, port, db_file):
+    def start(self, ip, port, db_url):
         if self.running:
             raise RuntimeError("Server already running.")
 
-        srv = server.Server(ip=ip, port=port, db_file=db_file)
+        srv = server.Server(ip=ip, port=port, db_url=db_url or DEFAULT_DB_URL)
         srv.load_data()
 
         listening_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -82,12 +83,7 @@ class ServerController:
         if not self.running or not self.server:
             raise RuntimeError("Server is not running.")
 
-        found_files = []
-        with self.server.data_lock:
-            for fname, peer_list in self.server.file_index.items():
-                if any(peer.get("hostname") == hostname for peer in peer_list):
-                    found_files.append(fname)
-        return found_files
+        return self.server.list_files_by_hostname(hostname)
 
     def ping(self, hostname):
         if not self.running or not self.server:
@@ -133,7 +129,7 @@ class ServerUI:
 
         self.ip_var = tk.StringVar(value="0.0.0.0")
         self.port_var = tk.StringVar(value="9999")
-        self.db_var = tk.StringVar(value="server_data.json")
+        self.db_var = tk.StringVar(value=DEFAULT_DB_URL)
 
         self.active_clients_after_id = None
         self._active_clients_cache = []
@@ -164,7 +160,7 @@ class ServerUI:
 
         self._add_labeled_entry(config_frame, "IP Address:", self.ip_var, row=0)
         self._add_labeled_entry(config_frame, "Port:", self.port_var, row=1)
-        self._add_labeled_entry(config_frame, "Database file:", self.db_var, row=2)
+        self._add_labeled_entry(config_frame, "Database URL:", self.db_var, row=2)
 
         button_frame = tk.Frame(self.root, bg=PASTEL_BG)
         button_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -312,7 +308,7 @@ class ServerUI:
     def start_server(self):
         ip = self.ip_var.get().strip()
         port_value = self.port_var.get().strip()
-        db_file = self.db_var.get().strip()
+        db_url = self.db_var.get().strip() or DEFAULT_DB_URL
 
         if not ip or not port_value:
             messagebox.showerror("Invalid input", "IP address and port are required.")
@@ -325,7 +321,7 @@ class ServerUI:
             return
 
         try:
-            self.controller.start(ip, port, db_file)
+            self.controller.start(ip, port, db_url)
         except Exception as exc:
             messagebox.showerror("Error starting server", str(exc))
             logging.error("Failed to start server: %s", exc)
