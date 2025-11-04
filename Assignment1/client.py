@@ -77,10 +77,10 @@ class Client:
             peer_socket.close()
             logging.info(f"[{thread_name}] Closed connection with peer {peer_address}")
 
-    def _do_publish(self, lname, fname):
+    def _do_publish(self, lname, fname, allow_overwrite=False):
         if not os.path.exists(lname):
             logging.error(f"File {lname} does not exist.")
-            return
+            raise FileNotFoundError(f"File {lname} does not exist.")
         file_size = os.path.getsize(lname)
         last_modified = datetime.utcfromtimestamp(os.path.getmtime(lname)).isoformat() + "Z"
         source_ext = os.path.splitext(lname)[1]
@@ -93,12 +93,17 @@ class Client:
             'fname': fname,
             'file_size': file_size,
             'last_modified': last_modified,
+            'allow_overwrite': allow_overwrite,
         }
-        if protocol.send_message(self.server_socket, publish_message):
-            response = protocol.receive_message(self.server_socket)
-            logging.info(f"Publish response: {response}")
-        else:
+        if not protocol.send_message(self.server_socket, publish_message):
             logging.error("Failed to send publish message.")
+            raise RuntimeError("Failed to send publish message.")
+        response = protocol.receive_message(self.server_socket)
+        if response is None:
+            logging.error("No publish response received from server.")
+            raise RuntimeError("No response received after publish request.")
+        logging.info(f"Publish response: {response}")
+        return response
 
     def _download_from_peer(self, chosen_peer, fname_to_save):
         logging.info("Starting download from peer...")

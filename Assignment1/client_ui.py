@@ -117,11 +117,11 @@ class ClientController:
 
         logging.info("Client disconnected.")
 
-    def publish(self, local_path, alias):
+    def publish(self, local_path, alias, allow_overwrite=False):
         if not self.connected or not self.client:
             raise RuntimeError("Client is not connected.")
         with self._socket_lock:
-            self.client._do_publish(local_path, alias)
+            return self.client._do_publish(local_path, alias, allow_overwrite=allow_overwrite)
 
     def fetch_peer_list(self, fname):
         if not self.connected or not self.client:
@@ -412,18 +412,70 @@ class ClientUI:
 
         threading.Thread(
             target=self._publish_task,
-            args=(local_path, alias),
+            args=(local_path, alias, False),
             daemon=True,
         ).start()
 
-    def _publish_task(self, local_path, alias):
+    def _publish_task(self, local_path, alias, allow_overwrite):
         try:
-            self.controller.publish(local_path, alias)
+            response = self.controller.publish(local_path, alias, allow_overwrite=allow_overwrite)
         except Exception as exc:
             logging.error("Publish failed: %s", exc)
             self.root.after(0, lambda: messagebox.showerror("Publish error", str(exc)))
             return
-        logging.info("Publish request sent for %s -> alias '%s'", local_path, alias)
+        logging.info(
+            "Publish response received for %s -> alias '%s': %s",
+            local_path,
+            alias,
+            response,
+        )
+        self.root.after(
+            0,
+            lambda: self._handle_publish_response(local_path, alias, response, allow_overwrite),
+        )
+
+    def _handle_publish_response(self, local_path, alias, response, allow_overwrite):
+        status = (response or {}).get("status")
+        message = response.get("message") if isinstance(response, dict) else None
+        if not isinstance(response, dict):
+            messagebox.showerror("Publish error", "Unexpected response from server.")
+            return
+
+        if status == "conflict" and not allow_overwrite:
+            existing_path = response.get("existing_lname") or "unknown location"
+            prompt = (
+                "Alias '{alias}' is already published for this client.\n\n"
+                "Existing path: {existing}\n"
+                "New path: {new}\n\n"
+                "Do you want to overwrite the previous file entry?"
+            ).format(alias=alias, existing=existing_path, new=local_path)
+            overwrite = messagebox.askyesno("Overwrite alias?", prompt)
+            if overwrite:
+                logging.info("User confirmed overwrite for alias '%s'.", alias)
+                threading.Thread(
+                    target=self._publish_task,
+                    args=(local_path, alias, True),
+                    daemon=True,
+                ).start()
+            else:
+                logging.info("User declined to overwrite alias '%s'.", alias)
+                messagebox.showinfo("Publish", f"Publish cancelled for alias '{alias}'.")
+            return
+
+        if status in ("created", "updated"):
+            title = "Publish" if status == "created" else "Publish Updated"
+            messagebox.showinfo(title, message or f"Alias '{alias}' published successfully.")
+            return
+
+        if status == "unchanged":
+            messagebox.showinfo("Publish", message or f"Alias '{alias}' is already up to date.")
+            return
+
+        if status == "error":
+            messagebox.showerror("Publish error", message or f"Failed to publish '{alias}'.")
+            return
+
+        messagebox.showinfo("Publish", message or f"Alias '{alias}' publish result: {status}")
 
     def fetch_file(self):
         fname = self.fetch_name_var.get().strip()
@@ -537,11 +589,11 @@ class ClientUI:
         listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
 
         for idx, peer in enumerate(peer_list, start=1):
-            hostname = peer.get("hostname") or "Unknown"
-            original_name = os.path.basename(peer.get("lname") or fname)
+            client_label = peer.get("hostname") or peer.get("ip") or "Unknown client"
+            size_label = self._format_file_size(peer.get("file_size"))
             listbox.insert(
                 tk.END,
-                f"{idx}. {hostname} ({original_name})",
+                f"{idx}. {client_label} ({size_label})",
             )
 
         button_frame = tk.Frame(dialog)
@@ -600,7 +652,7 @@ class ClientUI:
         all_button = tk.Button(button_frame, text="Download All", command=on_select_all, bg=PASTEL_BUTTON)
         all_button.grid(row=0, column=1, padx=5, sticky="ew")
 
-        custom_button = tk.Button(button_frame, text="Custom...", command=on_custom, bg=PASTEL_BUTTON)
+        custom_button = tk.Button(button_frame, text="Custom", command=on_custom, bg=PASTEL_BUTTON)
         custom_button.grid(row=0, column=2, padx=5, sticky="ew")
 
         cancel_button = tk.Button(button_frame, text="Cancel", command=on_cancel, bg=PASTEL_BUTTON)
@@ -667,6 +719,20 @@ class ClientUI:
         summary = "\n\n".join(messages) if messages else "No downloads were completed."
         messagebox.showinfo("Fetch summary", summary)
         self.fetch_button.config(state=tk.NORMAL)
+
+    def _format_file_size(self, size_value):
+        try:
+            size = int(size_value)
+        except (TypeError, ValueError):
+            return "unknown size"
+        units = ["B", "KB", "MB", "GB", "TB"]
+        for unit in units:
+            if size < 1024 or unit == "TB":
+                if unit == "B":
+                    return f"{size} {unit}"
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
 
     def _get_preferred_filename(self, peer_info, fallback_name):
         original = peer_info.get("lname")

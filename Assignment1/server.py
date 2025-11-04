@@ -70,6 +70,7 @@ class Server:
                 if action == "publish":
                     lname = message.get("lname")
                     fname = message.get("fname")
+                    allow_overwrite = bool(message.get("allow_overwrite"))
                     if not lname or not fname:
                         response = {"status": "error", "message": "Missing lname or fname"}
                     else:
@@ -82,15 +83,60 @@ class Server:
                             "last_modified": message.get("last_modified"),
                             "fname": fname,
                         }
-                        inserted = self.db.register_file(peer_info)
-                        if inserted:
-                            logging.info("[%s] Client %s publishing file %s", thread_name, client_address, fname)
-                            response = {"status": "success", "message": f"File {fname} published successfully"}
-                        else:
-                            logging.warning(
-                                "[%s] File '%s' already published with same metadata by %s", thread_name, fname, client_address
+                        existing_entry = None
+                        if client_hostname and client_ip and client_p2p_port:
+                            existing_entry = self.db.get_entry(fname, client_hostname, client_ip, client_p2p_port)
+
+                        if existing_entry:
+                            same_file_path = existing_entry.get("lname") == lname
+                            metadata_matches = (
+                                same_file_path
+                                and existing_entry.get("file_size") == peer_info["file_size"]
+                                and existing_entry.get("last_modified") == peer_info["last_modified"]
                             )
-                            response = {"status": "exists", "message": f"File {fname} already registered with same metadata"}
+                            if metadata_matches:
+                                logging.info(
+                                    "[%s] Client %s attempted to republish %s with unchanged metadata",
+                                    thread_name,
+                                    client_address,
+                                    fname,
+                                )
+                                response = {
+                                    "status": "unchanged",
+                                    "message": f"File {fname} is already up to date for this client.",
+                                }
+                            elif not same_file_path and not allow_overwrite:
+                                logging.info(
+                                    "[%s] Client %s publish conflict on alias %s (existing path %s, new path %s)",
+                                    thread_name,
+                                    client_address,
+                                    fname,
+                                    existing_entry.get("lname"),
+                                    lname,
+                                )
+                                response = {
+                                    "status": "conflict",
+                                    "message": f"Alias '{fname}' is already published for this client.",
+                                    "existing_lname": existing_entry.get("lname"),
+                                }
+                            else:
+                                result = self.db.register_file(peer_info)
+                                logging.info(
+                                    "[%s] Client %s overwrote alias %s with path %s",
+                                    thread_name,
+                                    client_address,
+                                    fname,
+                                    lname,
+                                )
+                                response = {
+                                    "status": "updated",
+                                    "message": f"File {fname} metadata updated.",
+                                    "result": result,
+                                }
+                        else:
+                            result = self.db.register_file(peer_info)
+                            logging.info("[%s] Client %s publishing new file %s", thread_name, client_address, fname)
+                            response = {"status": "created", "message": f"File {fname} published successfully", "result": result}
                     protocol.send_message(client_socket, response)
 
                 elif action == "fetch":

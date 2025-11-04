@@ -54,12 +54,14 @@ class Database:
                 last_modified TEXT
             );
         """
+        drop_legacy_index_stmt = "DROP INDEX IF EXISTS uq_file_index_unique_peer;"
         create_index_stmt = """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_file_index_unique_peer
-                ON file_index (fname, hostname, ip, port, file_size, last_modified);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_file_index_alias_per_peer
+                ON file_index (fname, hostname, ip, port);
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(create_table_stmt)
+            cur.execute(drop_legacy_index_stmt)
             cur.execute(create_index_stmt)
         logging.info("Database schema verified.")
 
@@ -85,18 +87,36 @@ class Database:
             rows = cur.fetchall()
         return list(rows)
 
-    def register_file(self, entry: Dict[str, object]) -> bool:
+    def get_entry(self, fname: str, hostname: str, ip: str, port: int) -> Optional[Dict[str, object]]:
+        query = """
+            SELECT fname, hostname, ip, port, lname, file_size, last_modified
+            FROM file_index
+            WHERE fname = %s AND hostname = %s AND ip = %s AND port = %s
+            LIMIT 1
+        """
+        with self._connect() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, (fname, hostname, ip, port))
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def register_file(self, entry: Dict[str, object]) -> str:
         insert_stmt = """
             INSERT INTO file_index (fname, hostname, ip, port, lname, file_size, last_modified)
             VALUES (%(fname)s, %(hostname)s, %(ip)s, %(port)s, %(lname)s, %(file_size)s, %(last_modified)s)
-            ON CONFLICT (fname, hostname, ip, port, file_size, last_modified)
-            DO NOTHING
-            RETURNING id
+            ON CONFLICT (fname, hostname, ip, port)
+            DO UPDATE SET
+                lname = EXCLUDED.lname,
+                file_size = EXCLUDED.file_size,
+                last_modified = EXCLUDED.last_modified
+            RETURNING id, xmax = 0 AS inserted
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(insert_stmt, entry)
-            inserted = cur.fetchone()
-        return inserted is not None
+            result = cur.fetchone()
+        if not result:
+            return "none"
+        _, inserted = result
+        return "inserted" if inserted else "updated"
 
     def delete_entries_for_peer(self, hostname: str, ip: str, port: int) -> Dict[str, int]:
         delete_stmt = """
