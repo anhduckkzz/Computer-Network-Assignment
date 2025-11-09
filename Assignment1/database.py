@@ -87,6 +87,22 @@ class Database:
             rows = cur.fetchall()
         return list(rows)
 
+    def list_all_shared_files(self) -> List[Dict[str, object]]:
+        query = """
+            SELECT
+                fname,
+                COUNT(*) AS peer_count,
+                MAX(file_size) AS file_size,
+                MAX(last_modified) AS last_modified
+            FROM file_index
+            GROUP BY fname
+            ORDER BY fname
+        """
+        with self._connect() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+        return list(rows)
+
     def get_entry(self, fname: str, hostname: str, ip: str, port: int) -> Optional[Dict[str, object]]:
         query = """
             SELECT fname, hostname, ip, port, lname, file_size, last_modified

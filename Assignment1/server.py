@@ -64,9 +64,12 @@ class Server:
                 if message is None:
                     logging.warning("Connection closed by %s", client_address)
                     break
-                logging.info("Received message from %s: %s", client_address, message)
 
                 action = message.get("action")
+                if action != "ping":
+                    # Chỉ log nếu KHÔNG PHẢI là "ping"
+                    logging.info("Received message from %s: %s", client_address, message)
+
                 if action == "publish":
                     lname = message.get("lname")
                     fname = message.get("fname")
@@ -148,6 +151,11 @@ class Server:
                         peer_list = self.db.list_peers_for_file(fname)
                         response = {"status": "success", "peer_list": peer_list}
                         logging.info("Sent peer list for file %s to %s", fname, client_address)
+                    protocol.send_message(client_socket, response)
+
+                elif action == "ping":
+                    # Chỉ cần trả lời "pong" để Client biết Server còn sống
+                    response = {"status": "success", "message": "pong"}
                     protocol.send_message(client_socket, response)
 
                 else:
